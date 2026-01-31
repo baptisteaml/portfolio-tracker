@@ -1,0 +1,73 @@
+{
+  "portfolio_name": "Trading Portfolio",
+  "currency": "USD",
+  "starting_capital": 129626,
+
+  "strategies": {
+    "AI Trend": {
+      "description": "Leader in AI technology and Microchip production",
+      "holdings": [
+        {"ticker": "NVDA", "shares": 85.363615},
+        {"ticker": "GOOGL", "shares": 23.0},
+        {"ticker": "MU", "shares": 65.167807},
+        {"ticker": "TSM", "shares": 31.737317},
+        {"ticker": "BESI.AS", "shares": 61.385428}
+      ]
+    },
+    "Base Market Exposure": {
+      "description": "US Economy resilient, Mag 7 performance, large cap carrying SPX",
+      "holdings": [
+        {"ticker": "VOO", "shares": 19.0},
+        {"ticker": "VTV", "shares": 58.0},
+        {"ticker": "VUG", "shares": 24.0},
+        {"ticker": "AOA", "shares": 78.146232},
+        {"ticker": "VGK", "shares": 84.14283}
+      ]
+    },
+    "EV Trend": {
+      "description": "EV Manufacturer expanding to US and EU markets",
+      "holdings": [
+        {"ticker": "1211.HK", "shares": 1259.164173}
+      ]
+    },
+    "Small-Cap ETF": {
+      "description": "Small-cap ETFs less exposed to international shocks",
+      "holdings": [
+        {"ticker": "IJR", "shares": 70.089813},
+        {"ticker": "VB", "shares": 35.349533}
+      ]
+    },
+    "Transition Metals": {
+      "description": "Electrification trend - copper, zinc, nickel for batteries and transmission",
+      "holdings": [
+        {"ticker": "COPX", "shares": 200.0},
+        {"ticker": "ICOP", "shares": 205.0},
+        {"ticker": "SETM", "shares": 310.0},
+        {"ticker": "COPJ", "shares": 290.0},
+        {"ticker": "TGB", "shares": 2800.0}
+      ]
+    },
+    "Healthcare": {
+      "description": "GLP-1 drugs (Ozempic) massive uptake for weight loss and health benefits",
+      "holdings": [
+        {"ticker": "LLY", "shares": 9.619193},
+        {"ticker": "NOVO-B.CO", "shares": 59.573858},
+        {"ticker": "AMGN", "shares": 19.0},
+        {"ticker": "VKTX", "shares": 145.454545},
+        {"ticker": "ALT", "shares": 1111.111111}
+      ]
+    }
+  },
+
+  "benchmarks": {
+    "S&P 500 TR": "^SP500TR",
+    "S&P 500 EW": "RSP",
+    "MSCI World": "URTH",
+    "MSCI World EW": "ACWI"
+  },
+
+  "email": {
+    "recipient": "baptiste.laurencin@gmail.com",
+    "sender": "baptiste.laurencin@gmail.com"
+  }
+}

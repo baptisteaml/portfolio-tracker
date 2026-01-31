@@ -1,0 +1,123 @@
+{
+  "portfolio_name": "Trading Portfolio",
+  "currency": "USD",
+  "starting_capital": 129626,
+  "inception_date": "2022-10-10",
+  "cash": 4887.04,
+
+  "strategies": {
+    "AI Trend": {
+      "description": "Leader in AI technology and Microchip production",
+      "holdings": [
+        {"ticker": "NVDA", "shares": 85.363615, "cost_basis": 70.28, "currency": "USD", "opening_value": 6000},
+        {"ticker": "GOOGL", "shares": 23.0, "cost_basis": 282.55, "currency": "USD", "opening_value": 6498.75},
+        {"ticker": "MU", "shares": 65.167807, "cost_basis": 89.87, "currency": "USD", "opening_value": 5856.17},
+        {"ticker": "TSM", "shares": 31.737317, "cost_basis": 253.78, "currency": "USD", "opening_value": 8053.17},
+        {"ticker": "BESI.AS", "shares": 61.385428, "cost_basis": 66.26, "currency": "EUR", "opening_value": 4066.92}
+      ]
+    },
+    "Base Market Exposure": {
+      "description": "US Economy resilient, Mag 7 performance, large cap carrying SPX",
+      "holdings": [
+        {"ticker": "VOO", "shares": 19.0, "cost_basis": 386.67, "currency": "USD", "opening_value": 7346.84},
+        {"ticker": "VTV", "shares": 58.0, "cost_basis": 109.76, "currency": "USD", "opening_value": 6363.51},
+        {"ticker": "VUG", "shares": 24.0, "cost_basis": 216.50, "currency": "USD", "opening_value": 5196.10},
+        {"ticker": "AOA", "shares": 78.146232, "cost_basis": 50.37, "currency": "USD", "opening_value": 3936.21},
+        {"ticker": "VGK", "shares": 84.14283, "cost_basis": 52.14, "currency": "USD", "opening_value": 4386.63}
+      ]
+    },
+    "EV Trend": {
+      "description": "EV Manufacturer expanding to US and EU markets (BYD)",
+      "holdings": [
+        {"ticker": "1211.HK", "shares": 1259.164173, "cost_basis": 56.58, "currency": "HKD", "opening_value": 9162.71}
+      ]
+    },
+    "Small-Cap ETF": {
+      "description": "Small-cap ETFs less exposed to international shocks",
+      "holdings": [
+        {"ticker": "IJR", "shares": 70.089813, "cost_basis": 112.06, "currency": "USD", "opening_value": 7854.53},
+        {"ticker": "VB", "shares": 35.349533, "cost_basis": 222.18, "currency": "USD", "opening_value": 7853.61}
+      ]
+    },
+    "Transition Metals": {
+      "description": "Electrification trend - copper, zinc, nickel for batteries and transmission",
+      "holdings": [
+        {"ticker": "TGB", "shares": 2800.0, "cost_basis": 4.13, "currency": "USD", "opening_value": 11550.00},
+        {"ticker": "COPX", "shares": 200.0, "cost_basis": 24.72, "currency": "USD", "opening_value": 4943.05},
+        {"ticker": "COPJ", "shares": 290.0, "cost_basis": 39.83, "currency": "USD", "opening_value": 11550.00},
+        {"ticker": "SETM", "shares": 310.0, "cost_basis": 16.06, "currency": "USD", "opening_value": 4977.86},
+        {"ticker": "ICOP", "shares": 205.0, "cost_basis": 24.15, "currency": "USD", "opening_value": 4950.00}
+      ]
+    },
+    "Healthcare": {
+      "description": "GLP-1 drugs (Ozempic) massive uptake for weight loss and health benefits",
+      "holdings": [
+        {"ticker": "ALT", "shares": 1111.111111, "cost_basis": 5.40, "currency": "USD", "opening_value": 6000.00},
+        {"ticker": "LLY", "shares": 9.619193, "cost_basis": 831.68, "currency": "USD", "opening_value": 8000.00},
+        {"ticker": "NOVO-B.CO", "shares": 59.573858, "cost_basis": 141.37, "currency": "DKK", "opening_value": 8419.90},
+        {"ticker": "AMGN", "shares": 19.0, "cost_basis": 421.05, "currency": "USD", "opening_value": 8000.00},
+        {"ticker": "VKTX", "shares": 145.454545, "cost_basis": 41.77, "currency": "USD", "opening_value": 6073.54}
+      ]
+    }
+  },
+
+  "benchmarks": {
+    "S&P 500 TR": "^SP500TR",
+    "S&P 500 EW": "RSP",
+    "MSCI World": "URTH"
+  },
+
+  "currency_tickers": {
+    "HKD": "HKDUSD=X",
+    "EUR": "EURUSD=X",
+    "DKK": "DKKUSD=X"
+  },
+
+  "historical_values": [
+    {"date": "2022-10-10", "portfolio_value": 129634.79, "msci_world": 96.20, "sp500_tr": 346.47, "sp500_ew": 123.44},
+    {"date": "2022-10-31", "portfolio_value": 138144.74, "msci_world": 110.05, "sp500_tr": 392.33, "sp500_ew": 142.11},
+    {"date": "2022-11-30", "portfolio_value": 144391.94, "msci_world": 104.15, "sp500_tr": 368.04, "sp500_ew": 134.88},
+    {"date": "2022-12-31", "portfolio_value": 139982.34, "msci_world": 112.37, "sp500_tr": 392.98, "sp500_ew": 145.48},
+    {"date": "2023-01-31", "portfolio_value": 146984.46, "msci_world": 109.46, "sp500_tr": 383.10, "sp500_ew": 140.57},
+    {"date": "2023-02-28", "portfolio_value": 139842.07, "msci_world": 113.01, "sp500_tr": 395.79, "sp500_ew": 138.67},
+    {"date": "2023-03-31", "portfolio_value": 143124.79, "msci_world": 115.04, "sp500_tr": 403.65, "sp500_ew": 139.87},
+    {"date": "2023-04-30", "portfolio_value": 144754.14, "msci_world": 113.90, "sp500_tr": 405.51, "sp500_ew": 134.54},
+    {"date": "2023-05-31", "portfolio_value": 145368.67, "msci_world": 119.58, "sp500_tr": 430.19, "sp500_ew": 144.20},
+    {"date": "2023-06-30", "portfolio_value": 147785.66, "msci_world": 124.64, "sp500_tr": 445.92, "sp500_ew": 149.90},
+    {"date": "2023-07-31", "portfolio_value": 149183.60, "msci_world": 121.89, "sp500_tr": 438.67, "sp500_ew": 145.10},
+    {"date": "2023-08-31", "portfolio_value": 147083.14, "msci_world": 116.52, "sp500_tr": 416.40, "sp500_ew": 137.13},
+    {"date": "2023-09-30", "portfolio_value": 145927.06, "msci_world": 113.56, "sp500_tr": 408.79, "sp500_ew": 132.03},
+    {"date": "2023-10-31", "portfolio_value": 143935.51, "msci_world": 123.90, "sp500_tr": 446.14, "sp500_ew": 144.15},
+    {"date": "2023-11-30", "portfolio_value": 148783.03, "msci_world": 128.98, "sp500_tr": 464.62, "sp500_ew": 153.39},
+    {"date": "2023-12-31", "portfolio_value": 151717.54, "msci_world": 131.20, "sp500_tr": 473.93, "sp500_ew": 152.68},
+    {"date": "2024-01-31", "portfolio_value": 153105.34, "msci_world": 137.14, "sp500_tr": 498.67, "sp500_ew": 158.86},
+    {"date": "2024-02-29", "portfolio_value": 159490.17, "msci_world": 141.67, "sp500_tr": 513.38, "sp500_ew": 165.28},
+    {"date": "2024-03-31", "portfolio_value": 168657.50, "msci_world": 136.06, "sp500_tr": 494.21, "sp500_ew": 157.96},
+    {"date": "2024-04-30", "portfolio_value": 170581.94, "msci_world": 142.45, "sp500_tr": 519.21, "sp500_ew": 162.45},
+    {"date": "2024-06-01", "portfolio_value": 171235.10, "msci_world": 144.19, "sp500_tr": 535.80, "sp500_ew": 160.98},
+    {"date": "2024-07-01", "portfolio_value": 169774.46, "msci_world": 147.81, "sp500_tr": 544.03, "sp500_ew": 168.82},
+    {"date": "2024-08-01", "portfolio_value": 163896.20, "msci_world": 151.96, "sp500_tr": 556.75, "sp500_ew": 173.03},
+    {"date": "2024-09-01", "portfolio_value": 168458.42, "msci_world": 154.65, "sp500_tr": 566.70, "sp500_ew": 176.26},
+    {"date": "2024-10-01", "portfolio_value": 173285.55, "msci_world": 151.51, "sp500_tr": 563.37, "sp500_ew": 174.12, "msci_world_ew": 5.13},
+    {"date": "2024-11-01", "portfolio_value": 173149.71, "msci_world": 158.82, "sp500_tr": 596.96, "sp500_ew": 185.31, "msci_world_ew": 5.29},
+    {"date": "2024-12-01", "portfolio_value": 172929.66, "msci_world": 153.26, "sp500_tr": 580.65, "sp500_ew": 173.07, "msci_world_ew": 5.07},
+    {"date": "2025-01-01", "portfolio_value": 163267.29, "msci_world": 159.43, "sp500_tr": 598.25, "sp500_ew": 179.64, "msci_world_ew": 5.30},
+    {"date": "2025-02-01", "portfolio_value": 164658.74, "msci_world": 158.78, "sp500_tr": 590.65, "sp500_ew": 178.59, "msci_world_ew": 5.28},
+    {"date": "2025-03-01", "portfolio_value": 161550.07, "msci_world": 152.01, "sp500_tr": 556.07, "sp500_ew": 171.70, "msci_world_ew": 5.19},
+    {"date": "2025-04-01", "portfolio_value": 162947.56, "msci_world": 153.10, "sp500_tr": 552.91, "sp500_ew": 168.45, "msci_world_ew": 5.32},
+    {"date": "2025-05-01", "portfolio_value": 158099.14, "msci_world": 162.06, "sp500_tr": 587.65, "sp500_ew": 175.71, "msci_world_ew": 5.56},
+    {"date": "2025-06-01", "portfolio_value": 157001.81, "msci_world": 168.09, "sp500_tr": 616.03, "sp500_ew": 181.00, "msci_world_ew": 5.73},
+    {"date": "2025-07-01", "portfolio_value": 168098.17, "msci_world": 171.10, "sp500_tr": 632.08, "sp500_ew": 183.63, "msci_world_ew": 5.76},
+    {"date": "2025-08-01", "portfolio_value": 176643.72, "msci_world": 175.88, "sp500_tr": 645.05, "sp500_ew": 188.62, "msci_world_ew": 5.93},
+    {"date": "2025-09-01", "portfolio_value": 174467.40, "msci_world": 180.18, "sp500_tr": 660.91, "sp500_ew": 188.63, "msci_world_ew": 6.01},
+    {"date": "2025-10-01", "portfolio_value": 181319.31, "msci_world": 181.17, "sp500_tr": 663.17, "sp500_ew": 189.27, "msci_world_ew": 5.994},
+    {"date": "2025-11-01", "portfolio_value": 198148.88, "msci_world": 185.03, "sp500_tr": 681.89, "sp500_ew": 187.93, "msci_world_ew": 5.982},
+    {"date": "2025-12-01", "portfolio_value": 206696.99, "msci_world": 185.06, "sp500_tr": 680.80, "sp500_ew": 190.92, "msci_world_ew": 6.032},
+    {"date": "2026-01-01", "portfolio_value": 224307.89, "msci_world": 185.77, "sp500_tr": 681.87, "sp500_ew": 191.59, "msci_world_ew": 6.19},
+    {"date": "2026-01-30", "portfolio_value": 250052.65, "msci_world": 189.63, "sp500_tr": 691.88, "sp500_ew": 198.04, "msci_world_ew": 6.3545}
+  ],
+
+  "trades": [],
+  "created_at": "2022-10-10",
+  "updated_at": "2026-01-30"
+}
