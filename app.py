@@ -470,10 +470,150 @@ def render_dashboard(data: dict):
         st.plotly_chart(fig, use_container_width=True)
 
 
+def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: float) -> dict:
+    """Calculate returns for different time periods."""
+    today = datetime.now().date()
+
+    # Get historical data points
+    hist_df = hist_df.copy()
+    hist_df['date'] = pd.to_datetime(hist_df['date']).dt.date
+    hist_df = hist_df.sort_values('date')
+
+    returns = {}
+
+    # Yesterday (for DTD)
+    yesterday_data = hist_df[hist_df['date'] < today].iloc[-1] if len(hist_df[hist_df['date'] < today]) > 0 else None
+    if yesterday_data is not None:
+        returns['dtd'] = {
+            'portfolio': ((current_value - yesterday_data['portfolio_value']) / yesterday_data['portfolio_value']) * 100,
+            'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - yesterday_data['sp500_tr']) / yesterday_data['sp500_tr']) * 100 if 'sp500_tr' in yesterday_data else 0,
+            'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - yesterday_data['sp500_ew']) / yesterday_data['sp500_ew']) * 100 if 'sp500_ew' in yesterday_data else 0,
+            'msci_world': ((hist_df.iloc[-1]['msci_world'] - yesterday_data['msci_world']) / yesterday_data['msci_world']) * 100 if 'msci_world' in yesterday_data else 0,
+        }
+    else:
+        returns['dtd'] = {'portfolio': 0, 'sp500_tr': 0, 'sp500_ew': 0, 'msci_world': 0}
+
+    # Month start (for MTD)
+    month_start = today.replace(day=1)
+    month_data = hist_df[hist_df['date'] < month_start]
+    if len(month_data) > 0:
+        month_start_data = month_data.iloc[-1]
+        returns['mtd'] = {
+            'portfolio': ((current_value - month_start_data['portfolio_value']) / month_start_data['portfolio_value']) * 100,
+            'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - month_start_data['sp500_tr']) / month_start_data['sp500_tr']) * 100,
+            'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - month_start_data['sp500_ew']) / month_start_data['sp500_ew']) * 100,
+            'msci_world': ((hist_df.iloc[-1]['msci_world'] - month_start_data['msci_world']) / month_start_data['msci_world']) * 100,
+        }
+    else:
+        returns['mtd'] = returns['dtd'].copy()
+
+    # Year start (for YTD)
+    year_start = today.replace(month=1, day=1)
+    year_data = hist_df[hist_df['date'] < year_start]
+    if len(year_data) > 0:
+        year_start_data = year_data.iloc[-1]
+        returns['ytd'] = {
+            'portfolio': ((current_value - year_start_data['portfolio_value']) / year_start_data['portfolio_value']) * 100,
+            'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - year_start_data['sp500_tr']) / year_start_data['sp500_tr']) * 100,
+            'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - year_start_data['sp500_ew']) / year_start_data['sp500_ew']) * 100,
+            'msci_world': ((hist_df.iloc[-1]['msci_world'] - year_start_data['msci_world']) / year_start_data['msci_world']) * 100,
+        }
+    else:
+        returns['ytd'] = returns['mtd'].copy()
+
+    # All time (from inception)
+    inception_data = hist_df.iloc[0]
+    returns['all_time'] = {
+        'portfolio': ((current_value - inception_data['portfolio_value']) / inception_data['portfolio_value']) * 100,
+        'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - inception_data['sp500_tr']) / inception_data['sp500_tr']) * 100,
+        'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - inception_data['sp500_ew']) / inception_data['sp500_ew']) * 100,
+        'msci_world': ((hist_df.iloc[-1]['msci_world'] - inception_data['msci_world']) / inception_data['msci_world']) * 100,
+    }
+
+    return returns
+
+
+def calculate_period_attribution(data: dict, hist_df: pd.DataFrame, start_date, end_date, fx_rates: dict) -> dict:
+    """Calculate strategy attribution for a specific time period using historical data."""
+    tickers = get_all_tickers(data)
+
+    # Fetch price history for the period
+    try:
+        price_history = yf.download(tickers, start=start_date, end=end_date + timedelta(days=1), progress=False)
+        if price_history.empty:
+            return {}
+
+        if len(tickers) == 1:
+            prices = price_history['Close'].to_frame()
+            prices.columns = tickers
+        else:
+            prices = price_history['Close']
+
+        if len(prices) < 2:
+            return {}
+
+        start_prices = prices.iloc[0]
+        end_prices = prices.iloc[-1]
+
+    except:
+        return {}
+
+    # Calculate attribution by strategy
+    attribution = {}
+    total_start_value = 0
+    total_end_value = 0
+
+    for strategy_name, strategy in data.get("strategies", {}).items():
+        strat_start = 0
+        strat_end = 0
+        holdings_attr = []
+
+        for holding in strategy.get("holdings", []):
+            ticker = holding["ticker"]
+            shares = holding["shares"]
+            currency = holding.get("currency", "USD")
+            fx_rate = fx_rates.get(currency, 1.0)
+
+            if ticker in start_prices.index and ticker in end_prices.index:
+                start_val = shares * start_prices[ticker] * fx_rate
+                end_val = shares * end_prices[ticker] * fx_rate
+
+                strat_start += start_val
+                strat_end += end_val
+
+                pnl = end_val - start_val
+                pct_change = ((end_val - start_val) / start_val * 100) if start_val > 0 else 0
+
+                holdings_attr.append({
+                    'ticker': ticker,
+                    'start_value': start_val,
+                    'end_value': end_val,
+                    'pnl': pnl,
+                    'pct_change': pct_change
+                })
+
+        total_start_value += strat_start
+        total_end_value += strat_end
+
+        attribution[strategy_name] = {
+            'start_value': strat_start,
+            'end_value': strat_end,
+            'pnl': strat_end - strat_start,
+            'pct_return': ((strat_end - strat_start) / strat_start * 100) if strat_start > 0 else 0,
+            'holdings': holdings_attr
+        }
+
+    # Calculate attribution percentage (contribution to total return)
+    for strat in attribution:
+        attribution[strat]['attribution_pct'] = (attribution[strat]['pnl'] / total_start_value * 100) if total_start_value > 0 else 0
+
+    return attribution
+
+
 def render_daily_summary(data: dict):
-    """Render daily summary page."""
+    """Render daily summary page with returns grid and period attribution."""
     st.markdown("# 📅 Daily Summary")
-    st.markdown(f"### {datetime.now().strftime('%A, %B %d, %Y')}")
+    st.markdown(f"**{datetime.now().strftime('%A, %B %d, %Y')}**")
 
     tickers = get_all_tickers(data)
     if not tickers:
@@ -482,17 +622,15 @@ def render_daily_summary(data: dict):
 
     fx_rates = fetch_fx_rates()
     current_prices, prev_prices = fetch_prices_with_prev(tickers)
-
     total_value, holdings_detail = calculate_portfolio_value(data, current_prices, fx_rates)
     prev_total, _ = calculate_portfolio_value(data, prev_prices, fx_rates)
-
     daily_changes = calculate_daily_changes(data, current_prices, prev_prices, fx_rates)
 
-    # Daily P&L summary
+    # Daily P&L summary - cleaner metrics
     total_daily_pnl = sum(c["daily_pnl"] for c in daily_changes.values())
     daily_pct = (total_daily_pnl / prev_total * 100) if prev_total > 0 else 0
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         color = "normal" if total_daily_pnl >= 0 else "inverse"
         st.metric("Today's P&L", f"${total_daily_pnl:,.2f}", f"{daily_pct:+.2f}%", delta_color=color)
@@ -500,75 +638,221 @@ def render_daily_summary(data: dict):
         st.metric("Portfolio Value", f"${total_value:,.2f}")
     with col3:
         st.metric("Previous Close", f"${prev_total:,.2f}")
+    with col4:
+        starting_capital = data.get("starting_capital", 129626)
+        total_return = ((total_value - starting_capital) / starting_capital * 100)
+        st.metric("Total Return", f"{total_return:+.1f}%")
 
     st.markdown("---")
 
-    # Strategy attribution with bar chart
-    st.subheader("Strategy Attribution")
+    # =====================================================
+    # RETURNS GRID - DTD, MTD, YTD, All-Time
+    # =====================================================
+    st.subheader("Returns Overview")
 
-    strat_changes = {}
-    for ticker, change in daily_changes.items():
-        strat = change["strategy"]
-        if strat not in strat_changes:
-            strat_changes[strat] = {"pnl": 0, "pct": 0, "holdings": []}
-        strat_changes[strat]["pnl"] += change["daily_pnl"]
-        strat_changes[strat]["holdings"].append(change)
+    hist_data = data.get("historical_values", [])
+    if hist_data:
+        hist_df = pd.DataFrame(hist_data)
+        period_returns = calculate_period_returns(data, hist_df, total_value)
 
-    # Calculate attribution percentage
-    for strat in strat_changes:
-        strat_changes[strat]["attribution"] = (strat_changes[strat]["pnl"] / prev_total * 100) if prev_total > 0 else 0
+        # Create returns grid
+        returns_grid = pd.DataFrame({
+            "": ["Your Portfolio", "S&P 500 TR", "S&P 500 EW", "MSCI World"],
+            "DTD": [
+                f"{period_returns['dtd']['portfolio']:+.2f}%",
+                f"{period_returns['dtd']['sp500_tr']:+.2f}%",
+                f"{period_returns['dtd']['sp500_ew']:+.2f}%",
+                f"{period_returns['dtd']['msci_world']:+.2f}%"
+            ],
+            "MTD": [
+                f"{period_returns['mtd']['portfolio']:+.2f}%",
+                f"{period_returns['mtd']['sp500_tr']:+.2f}%",
+                f"{period_returns['mtd']['sp500_ew']:+.2f}%",
+                f"{period_returns['mtd']['msci_world']:+.2f}%"
+            ],
+            "YTD": [
+                f"{period_returns['ytd']['portfolio']:+.2f}%",
+                f"{period_returns['ytd']['sp500_tr']:+.2f}%",
+                f"{period_returns['ytd']['sp500_ew']:+.2f}%",
+                f"{period_returns['ytd']['msci_world']:+.2f}%"
+            ],
+            "All-Time": [
+                f"{period_returns['all_time']['portfolio']:+.2f}%",
+                f"{period_returns['all_time']['sp500_tr']:+.2f}%",
+                f"{period_returns['all_time']['sp500_ew']:+.2f}%",
+                f"{period_returns['all_time']['msci_world']:+.2f}%"
+            ]
+        })
 
-    # Create attribution chart
-    attr_data = [
-        {"Strategy": strat, "P&L": info["pnl"], "Attribution": info["attribution"]}
-        for strat, info in sorted(strat_changes.items(), key=lambda x: x[1]["pnl"], reverse=True)
-    ]
-    attr_df = pd.DataFrame(attr_data)
+        # Style the returns grid with colors
+        st.dataframe(returns_grid, use_container_width=True, hide_index=True, height=180)
 
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        fig = px.bar(
-            attr_df, x="Strategy", y="Attribution",
-            color="Attribution",
-            color_continuous_scale=["#ef4444", "#fbbf24", "#10b981"],
-            color_continuous_midpoint=0,
-            text=attr_df["Attribution"].apply(lambda x: f"{x:+.2f}%")
-        )
-        fig.update_traces(textposition="outside")
-        fig.update_layout(margin=dict(t=20, b=20), showlegend=False, yaxis_title="Attribution (%)")
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        for strat, info in sorted(strat_changes.items(), key=lambda x: x[1]["pnl"], reverse=True):
-            color = "🟢" if info["pnl"] >= 0 else "🔴"
-            st.markdown(f"**{strat}** {color}")
-            st.markdown(f"P&L: ${info['pnl']:,.2f} | Attribution: {info['attribution']:+.2f}%")
+        # Show alpha (outperformance vs S&P 500)
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            alpha_dtd = period_returns['dtd']['portfolio'] - period_returns['dtd']['sp500_tr']
+            st.metric("DTD Alpha", f"{alpha_dtd:+.2f}%", help="vs S&P 500 TR")
+        with col2:
+            alpha_mtd = period_returns['mtd']['portfolio'] - period_returns['mtd']['sp500_tr']
+            st.metric("MTD Alpha", f"{alpha_mtd:+.2f}%", help="vs S&P 500 TR")
+        with col3:
+            alpha_ytd = period_returns['ytd']['portfolio'] - period_returns['ytd']['sp500_tr']
+            st.metric("YTD Alpha", f"{alpha_ytd:+.2f}%", help="vs S&P 500 TR")
+        with col4:
+            alpha_all = period_returns['all_time']['portfolio'] - period_returns['all_time']['sp500_tr']
+            st.metric("All-Time Alpha", f"{alpha_all:+.2f}%", help="vs S&P 500 TR")
 
     st.markdown("---")
 
-    # Top winners and losers
-    col1, col2 = st.columns(2)
+    # =====================================================
+    # PERIOD ATTRIBUTION ANALYSIS
+    # =====================================================
+    st.subheader("Attribution Analysis")
+
+    # Time period selector
+    period_options = {
+        "Today (DTD)": 0,
+        "Week to Date": 7,
+        "Month to Date (MTD)": 30,
+        "Quarter to Date": 90,
+        "Year to Date (YTD)": 365,
+        "2025": "2025",
+        "2024": "2024",
+        "2023": "2023",
+        "All Time": "all"
+    }
+
+    selected_period = st.selectbox("Select Time Period", list(period_options.keys()), index=4)
+    period_value = period_options[selected_period]
+
+    # Calculate date range
+    today = datetime.now().date()
+    if period_value == "all":
+        start_date = datetime.strptime(data.get("inception_date", "2022-10-10"), "%Y-%m-%d").date()
+        end_date = today
+    elif isinstance(period_value, str) and period_value.isdigit():
+        # Specific year
+        year = int(period_value)
+        start_date = datetime(year, 1, 1).date()
+        if year == today.year:
+            end_date = today
+        else:
+            end_date = datetime(year, 12, 31).date()
+    elif period_value == 0:
+        # Today only - use daily changes we already have
+        start_date = today - timedelta(days=1)
+        end_date = today
+    else:
+        start_date = today - timedelta(days=period_value)
+        end_date = today
+
+    st.caption(f"Period: {start_date.strftime('%b %d, %Y')} - {end_date.strftime('%b %d, %Y')}")
+
+    # For "Today", use the already calculated daily changes
+    if period_value == 0:
+        strat_changes = {}
+        for ticker, change in daily_changes.items():
+            strat = change["strategy"]
+            if strat not in strat_changes:
+                strat_changes[strat] = {"pnl": 0, "holdings": []}
+            strat_changes[strat]["pnl"] += change["daily_pnl"]
+            strat_changes[strat]["holdings"].append(change)
+
+        for strat in strat_changes:
+            strat_changes[strat]["attribution_pct"] = (strat_changes[strat]["pnl"] / prev_total * 100) if prev_total > 0 else 0
+
+        attribution = strat_changes
+    else:
+        # Calculate period attribution
+        attribution = calculate_period_attribution(data, hist_df if hist_data else pd.DataFrame(), start_date, end_date, fx_rates)
+
+    if attribution:
+        # Strategy attribution chart
+        col1, col2 = st.columns([3, 2])
+
+        with col1:
+            attr_data = []
+            for strat, info in sorted(attribution.items(), key=lambda x: x[1].get('pnl', 0), reverse=True):
+                pnl = info.get('pnl', 0)
+                attr_pct = info.get('attribution_pct', 0)
+                attr_data.append({
+                    "Strategy": strat,
+                    "P&L": pnl,
+                    "Attribution": attr_pct
+                })
+
+            attr_df = pd.DataFrame(attr_data)
+
+            fig = px.bar(
+                attr_df, x="Strategy", y="Attribution",
+                color="Attribution",
+                color_continuous_scale=["#ef4444", "#fbbf24", "#10b981"],
+                color_continuous_midpoint=0,
+                text=attr_df["Attribution"].apply(lambda x: f"{x:+.2f}%")
+            )
+            fig.update_traces(textposition="outside")
+            fig.update_layout(
+                margin=dict(t=20, b=20),
+                showlegend=False,
+                yaxis_title="Attribution (%)",
+                xaxis_title=""
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            st.markdown("**Strategy Breakdown**")
+            total_period_pnl = sum(info.get('pnl', 0) for info in attribution.values())
+            st.markdown(f"**Total P&L: ${total_period_pnl:,.2f}**")
+            st.markdown("")
+
+            for strat, info in sorted(attribution.items(), key=lambda x: x[1].get('pnl', 0), reverse=True):
+                pnl = info.get('pnl', 0)
+                attr_pct = info.get('attribution_pct', 0)
+                icon = "🟢" if pnl >= 0 else "🔴"
+                st.markdown(f"{icon} **{strat}**")
+                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;${pnl:,.2f} ({attr_pct:+.2f}%)")
+
+        # Holdings breakdown for selected period
+        st.markdown("---")
+        st.subheader("Top Contributors")
+
+        all_holdings = []
+        for strat, info in attribution.items():
+            for h in info.get('holdings', []):
+                h['strategy'] = strat
+                all_holdings.append(h)
+
+        if all_holdings:
+            # Sort by P&L
+            sorted_holdings = sorted(all_holdings, key=lambda x: x.get('pnl', 0), reverse=True)
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("**Top Winners**")
+                winners = [h for h in sorted_holdings if h.get('pnl', 0) > 0][:5]
+                for h in winners:
+                    pnl = h.get('pnl', 0)
+                    pct = h.get('pct_change', h.get('daily_change_pct', 0))
+                    st.markdown(f"**{h['ticker']}** ({h['strategy']})")
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;+${pnl:,.2f} ({pct:+.2f}%)")
+
+            with col2:
+                st.markdown("**Top Losers**")
+                losers = [h for h in sorted_holdings if h.get('pnl', 0) < 0]
+                losers = sorted(losers, key=lambda x: x.get('pnl', 0))[:5]
+                for h in losers:
+                    pnl = h.get('pnl', 0)
+                    pct = h.get('pct_change', h.get('daily_change_pct', 0))
+                    st.markdown(f"**{h['ticker']}** ({h['strategy']})")
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;${pnl:,.2f} ({pct:+.2f}%)")
+
+    st.markdown("---")
+
+    # All positions daily change table - cleaner format
+    st.subheader("All Positions - Today's Change")
 
     sorted_changes = sorted(daily_changes.values(), key=lambda x: x["daily_pnl"], reverse=True)
-
-    with col1:
-        st.subheader("🏆 Top Winners")
-        winners = [c for c in sorted_changes if c["daily_pnl"] > 0][:5]
-        for w in winners:
-            st.markdown(f"**{w['ticker']}** ({w['strategy']})")
-            st.markdown(f"  +${w['daily_pnl']:,.2f} ({w['daily_change_pct']:+.2f}%)")
-
-    with col2:
-        st.subheader("📉 Top Losers")
-        losers = [c for c in sorted_changes if c["daily_pnl"] < 0][-5:][::-1]
-        for l in losers:
-            st.markdown(f"**{l['ticker']}** ({l['strategy']})")
-            st.markdown(f"  ${l['daily_pnl']:,.2f} ({l['daily_change_pct']:+.2f}%)")
-
-    st.markdown("---")
-
-    # All positions daily change - NO SCROLL
-    st.subheader("All Positions - Today's Change")
 
     all_changes = pd.DataFrame([
         {
@@ -581,7 +865,6 @@ def render_daily_summary(data: dict):
         for c in sorted_changes
     ])
 
-    # Display without scroll - calculate height based on rows
     row_height = 35
     header_height = 38
     table_height = header_height + (len(all_changes) * row_height) + 10
