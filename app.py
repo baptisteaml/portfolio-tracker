@@ -470,6 +470,19 @@ def render_dashboard(data: dict):
         st.plotly_chart(fig, use_container_width=True)
 
 
+@st.cache_data(ttl=300)
+def fetch_benchmark_prices(start_date: str) -> pd.DataFrame:
+    """Fetch benchmark price history."""
+    benchmark_tickers = ["^SP500TR", "RSP", "URTH"]
+    try:
+        data = yf.download(benchmark_tickers, start=start_date, progress=False)
+        if not data.empty:
+            return data['Close']
+    except:
+        pass
+    return pd.DataFrame()
+
+
 def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: float) -> dict:
     """Calculate returns for different time periods."""
     today = datetime.now().date()
@@ -481,45 +494,77 @@ def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: f
 
     returns = {}
 
-    # Yesterday (for DTD)
-    yesterday_data = hist_df[hist_df['date'] < today].iloc[-1] if len(hist_df[hist_df['date'] < today]) > 0 else None
-    if yesterday_data is not None:
+    # Fetch live benchmark prices for accurate DTD/MTD
+    benchmark_prices = fetch_benchmark_prices((today - timedelta(days=35)).strftime("%Y-%m-%d"))
+
+    # Get current and previous benchmark values from live data
+    if not benchmark_prices.empty and len(benchmark_prices) >= 2:
+        curr_sp500 = benchmark_prices['^SP500TR'].iloc[-1] if '^SP500TR' in benchmark_prices.columns else 0
+        prev_sp500 = benchmark_prices['^SP500TR'].iloc[-2] if '^SP500TR' in benchmark_prices.columns else 0
+        curr_rsp = benchmark_prices['RSP'].iloc[-1] if 'RSP' in benchmark_prices.columns else 0
+        prev_rsp = benchmark_prices['RSP'].iloc[-2] if 'RSP' in benchmark_prices.columns else 0
+        curr_urth = benchmark_prices['URTH'].iloc[-1] if 'URTH' in benchmark_prices.columns else 0
+        prev_urth = benchmark_prices['URTH'].iloc[-2] if 'URTH' in benchmark_prices.columns else 0
+
+        # DTD from live data
         returns['dtd'] = {
-            'portfolio': ((current_value - yesterday_data['portfolio_value']) / yesterday_data['portfolio_value']) * 100,
-            'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - yesterday_data['sp500_tr']) / yesterday_data['sp500_tr']) * 100 if 'sp500_tr' in yesterday_data else 0,
-            'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - yesterday_data['sp500_ew']) / yesterday_data['sp500_ew']) * 100 if 'sp500_ew' in yesterday_data else 0,
-            'msci_world': ((hist_df.iloc[-1]['msci_world'] - yesterday_data['msci_world']) / yesterday_data['msci_world']) * 100 if 'msci_world' in yesterday_data else 0,
+            'sp500_tr': ((curr_sp500 - prev_sp500) / prev_sp500 * 100) if prev_sp500 > 0 else 0,
+            'sp500_ew': ((curr_rsp - prev_rsp) / prev_rsp * 100) if prev_rsp > 0 else 0,
+            'msci_world': ((curr_urth - prev_urth) / prev_urth * 100) if prev_urth > 0 else 0,
+        }
+
+        # MTD from live data - find first trading day of month
+        month_start = today.replace(day=1)
+        month_prices = benchmark_prices[benchmark_prices.index.date >= month_start]
+        if len(month_prices) > 0:
+            month_start_sp500 = month_prices['^SP500TR'].iloc[0] if '^SP500TR' in month_prices.columns else curr_sp500
+            month_start_rsp = month_prices['RSP'].iloc[0] if 'RSP' in month_prices.columns else curr_rsp
+            month_start_urth = month_prices['URTH'].iloc[0] if 'URTH' in month_prices.columns else curr_urth
+        else:
+            month_start_sp500, month_start_rsp, month_start_urth = curr_sp500, curr_rsp, curr_urth
+
+        returns['mtd'] = {
+            'sp500_tr': ((curr_sp500 - month_start_sp500) / month_start_sp500 * 100) if month_start_sp500 > 0 else 0,
+            'sp500_ew': ((curr_rsp - month_start_rsp) / month_start_rsp * 100) if month_start_rsp > 0 else 0,
+            'msci_world': ((curr_urth - month_start_urth) / month_start_urth * 100) if month_start_urth > 0 else 0,
         }
     else:
-        returns['dtd'] = {'portfolio': 0, 'sp500_tr': 0, 'sp500_ew': 0, 'msci_world': 0}
+        returns['dtd'] = {'sp500_tr': 0, 'sp500_ew': 0, 'msci_world': 0}
+        returns['mtd'] = {'sp500_tr': 0, 'sp500_ew': 0, 'msci_world': 0}
 
-    # Month start (for MTD)
+    # Portfolio DTD - from last historical entry
+    last_hist = hist_df.iloc[-1] if len(hist_df) > 0 else None
+    if last_hist is not None:
+        returns['dtd']['portfolio'] = ((current_value - last_hist['portfolio_value']) / last_hist['portfolio_value']) * 100
+    else:
+        returns['dtd']['portfolio'] = 0
+
+    # Portfolio MTD - find closest entry to start of month
     month_start = today.replace(day=1)
-    month_data = hist_df[hist_df['date'] < month_start]
+    month_data = hist_df[hist_df['date'] <= month_start]
     if len(month_data) > 0:
         month_start_data = month_data.iloc[-1]
-        returns['mtd'] = {
-            'portfolio': ((current_value - month_start_data['portfolio_value']) / month_start_data['portfolio_value']) * 100,
-            'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - month_start_data['sp500_tr']) / month_start_data['sp500_tr']) * 100,
-            'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - month_start_data['sp500_ew']) / month_start_data['sp500_ew']) * 100,
-            'msci_world': ((hist_df.iloc[-1]['msci_world'] - month_start_data['msci_world']) / month_start_data['msci_world']) * 100,
-        }
+        returns['mtd']['portfolio'] = ((current_value - month_start_data['portfolio_value']) / month_start_data['portfolio_value']) * 100
     else:
-        returns['mtd'] = returns['dtd'].copy()
+        returns['mtd']['portfolio'] = returns['dtd']['portfolio']
 
-    # Year start (for YTD)
+    # YTD - use Jan 1 entry or closest after
     year_start = today.replace(month=1, day=1)
-    year_data = hist_df[hist_df['date'] < year_start]
-    if len(year_data) > 0:
-        year_start_data = year_data.iloc[-1]
-        returns['ytd'] = {
-            'portfolio': ((current_value - year_start_data['portfolio_value']) / year_start_data['portfolio_value']) * 100,
-            'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - year_start_data['sp500_tr']) / year_start_data['sp500_tr']) * 100,
-            'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - year_start_data['sp500_ew']) / year_start_data['sp500_ew']) * 100,
-            'msci_world': ((hist_df.iloc[-1]['msci_world'] - year_start_data['msci_world']) / year_start_data['msci_world']) * 100,
-        }
+    # Find entry on or after Jan 1
+    ytd_data = hist_df[hist_df['date'] >= year_start]
+    if len(ytd_data) > 0:
+        year_start_data = ytd_data.iloc[0]  # First entry of the year
     else:
-        returns['ytd'] = returns['mtd'].copy()
+        # Fallback to last entry of previous year
+        year_data = hist_df[hist_df['date'] < year_start]
+        year_start_data = year_data.iloc[-1] if len(year_data) > 0 else hist_df.iloc[0]
+
+    returns['ytd'] = {
+        'portfolio': ((current_value - year_start_data['portfolio_value']) / year_start_data['portfolio_value']) * 100,
+        'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - year_start_data['sp500_tr']) / year_start_data['sp500_tr']) * 100 if year_start_data['sp500_tr'] > 0 else 0,
+        'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - year_start_data['sp500_ew']) / year_start_data['sp500_ew']) * 100 if year_start_data['sp500_ew'] > 0 else 0,
+        'msci_world': ((hist_df.iloc[-1]['msci_world'] - year_start_data['msci_world']) / year_start_data['msci_world']) * 100 if year_start_data['msci_world'] > 0 else 0,
+    }
 
     # All time (from inception)
     inception_data = hist_df.iloc[0]
