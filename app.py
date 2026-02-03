@@ -400,6 +400,54 @@ def render_dashboard(data: dict):
 
     st.markdown("---")
 
+    # =====================================================
+    # RETURNS GRID - DTD, MTD, YTD, All-Time
+    # =====================================================
+    st.subheader("Returns Overview")
+
+    hist_data = data.get("historical_values", [])
+    if hist_data:
+        hist_df_returns = pd.DataFrame(hist_data)
+        period_returns = calculate_period_returns(data, hist_df_returns, total_value)
+
+        # Create returns grid with all benchmarks
+        returns_grid = pd.DataFrame({
+            "": ["Your Portfolio", "S&P 500 TR", "S&P 500 EW", "MSCI World", "MSCI World EW"],
+            "DTD": [
+                f"{period_returns['dtd']['portfolio']:+.2f}%",
+                f"{period_returns['dtd']['sp500_tr']:+.2f}%",
+                f"{period_returns['dtd']['sp500_ew']:+.2f}%",
+                f"{period_returns['dtd']['msci_world']:+.2f}%",
+                f"{period_returns['dtd'].get('msci_world_ew', 0):+.2f}%"
+            ],
+            "MTD": [
+                f"{period_returns['mtd']['portfolio']:+.2f}%",
+                f"{period_returns['mtd']['sp500_tr']:+.2f}%",
+                f"{period_returns['mtd']['sp500_ew']:+.2f}%",
+                f"{period_returns['mtd']['msci_world']:+.2f}%",
+                f"{period_returns['mtd'].get('msci_world_ew', 0):+.2f}%"
+            ],
+            "YTD": [
+                f"{period_returns['ytd']['portfolio']:+.2f}%",
+                f"{period_returns['ytd']['sp500_tr']:+.2f}%",
+                f"{period_returns['ytd']['sp500_ew']:+.2f}%",
+                f"{period_returns['ytd']['msci_world']:+.2f}%",
+                f"{period_returns['ytd'].get('msci_world_ew', 0):+.2f}%"
+            ],
+            "All-Time*": [
+                f"{period_returns['all_time']['portfolio']:+.2f}%",
+                f"{period_returns['all_time']['sp500_tr']:+.2f}%",
+                f"{period_returns['all_time']['sp500_ew']:+.2f}%",
+                f"{period_returns['all_time']['msci_world']:+.2f}%",
+                f"{period_returns['all_time'].get('msci_world_ew', 0):+.2f}%"
+            ]
+        })
+
+        st.dataframe(returns_grid, use_container_width=True, hide_index=True, height=215)
+        st.caption("*MSCI World EW All-Time calculated from Oct 2024 (ETF launch)")
+
+    st.markdown("---")
+
     # Strategy allocation
     col1, col2 = st.columns([2, 1])
 
@@ -461,6 +509,18 @@ def render_dashboard(data: dict):
         fig.add_trace(go.Scatter(x=hist_df['date'], y=(hist_df['sp500_ew']/start_spew-1)*100,
                                  name="S&P 500 EW", line=dict(color="#8b5cf6", width=2, dash="dash")))
 
+        # Add MSCI World EW if available (from Oct 2024)
+        if 'msci_world_ew' in hist_df.columns:
+            msci_ew_data = hist_df[hist_df['msci_world_ew'].notna()]
+            if not msci_ew_data.empty:
+                start_msci_ew = msci_ew_data['msci_world_ew'].iloc[0]
+                fig.add_trace(go.Scatter(
+                    x=msci_ew_data['date'],
+                    y=(msci_ew_data['msci_world_ew']/start_msci_ew-1)*100,
+                    name="MSCI World EW",
+                    line=dict(color="#ec4899", width=2, dash="dot")
+                ))
+
         fig.update_layout(
             yaxis_title="Return (%)",
             hovermode="x unified",
@@ -473,7 +533,7 @@ def render_dashboard(data: dict):
 @st.cache_data(ttl=300)
 def fetch_benchmark_prices(start_date: str) -> pd.DataFrame:
     """Fetch benchmark price history."""
-    benchmark_tickers = ["^SP500TR", "RSP", "URTH"]
+    benchmark_tickers = ["^SP500TR", "RSP", "URTH", "ACWI"]  # Added ACWI for MSCI World EW
     try:
         data = yf.download(benchmark_tickers, start=start_date, progress=False)
         if not data.empty:
@@ -494,43 +554,55 @@ def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: f
 
     returns = {}
 
-    # Fetch live benchmark prices for accurate DTD/MTD
-    benchmark_prices = fetch_benchmark_prices((today - timedelta(days=35)).strftime("%Y-%m-%d"))
+    # Fetch live benchmark prices for accurate DTD/MTD - go back further for MTD
+    benchmark_prices = fetch_benchmark_prices((today - timedelta(days=45)).strftime("%Y-%m-%d"))
 
     # Get current and previous benchmark values from live data
     if not benchmark_prices.empty and len(benchmark_prices) >= 2:
-        curr_sp500 = benchmark_prices['^SP500TR'].iloc[-1] if '^SP500TR' in benchmark_prices.columns else 0
-        prev_sp500 = benchmark_prices['^SP500TR'].iloc[-2] if '^SP500TR' in benchmark_prices.columns else 0
-        curr_rsp = benchmark_prices['RSP'].iloc[-1] if 'RSP' in benchmark_prices.columns else 0
-        prev_rsp = benchmark_prices['RSP'].iloc[-2] if 'RSP' in benchmark_prices.columns else 0
-        curr_urth = benchmark_prices['URTH'].iloc[-1] if 'URTH' in benchmark_prices.columns else 0
-        prev_urth = benchmark_prices['URTH'].iloc[-2] if 'URTH' in benchmark_prices.columns else 0
+        # Current values (last row)
+        curr_sp500 = float(benchmark_prices['^SP500TR'].iloc[-1]) if '^SP500TR' in benchmark_prices.columns else 0
+        curr_rsp = float(benchmark_prices['RSP'].iloc[-1]) if 'RSP' in benchmark_prices.columns else 0
+        curr_urth = float(benchmark_prices['URTH'].iloc[-1]) if 'URTH' in benchmark_prices.columns else 0
+        curr_acwi = float(benchmark_prices['ACWI'].iloc[-1]) if 'ACWI' in benchmark_prices.columns else 0
+
+        # Previous day values (second to last row)
+        prev_sp500 = float(benchmark_prices['^SP500TR'].iloc[-2]) if '^SP500TR' in benchmark_prices.columns else 0
+        prev_rsp = float(benchmark_prices['RSP'].iloc[-2]) if 'RSP' in benchmark_prices.columns else 0
+        prev_urth = float(benchmark_prices['URTH'].iloc[-2]) if 'URTH' in benchmark_prices.columns else 0
+        prev_acwi = float(benchmark_prices['ACWI'].iloc[-2]) if 'ACWI' in benchmark_prices.columns else 0
 
         # DTD from live data
         returns['dtd'] = {
             'sp500_tr': ((curr_sp500 - prev_sp500) / prev_sp500 * 100) if prev_sp500 > 0 else 0,
             'sp500_ew': ((curr_rsp - prev_rsp) / prev_rsp * 100) if prev_rsp > 0 else 0,
             'msci_world': ((curr_urth - prev_urth) / prev_urth * 100) if prev_urth > 0 else 0,
+            'msci_world_ew': ((curr_acwi - prev_acwi) / prev_acwi * 100) if prev_acwi > 0 else 0,
         }
 
         # MTD from live data - find first trading day of month
         month_start = today.replace(day=1)
-        month_prices = benchmark_prices[benchmark_prices.index.date >= month_start]
+        # Convert index to date for comparison
+        benchmark_prices_copy = benchmark_prices.copy()
+        benchmark_prices_copy['_date'] = benchmark_prices_copy.index.date
+        month_prices = benchmark_prices_copy[benchmark_prices_copy['_date'] >= month_start]
+
         if len(month_prices) > 0:
-            month_start_sp500 = month_prices['^SP500TR'].iloc[0] if '^SP500TR' in month_prices.columns else curr_sp500
-            month_start_rsp = month_prices['RSP'].iloc[0] if 'RSP' in month_prices.columns else curr_rsp
-            month_start_urth = month_prices['URTH'].iloc[0] if 'URTH' in month_prices.columns else curr_urth
+            month_start_sp500 = float(month_prices['^SP500TR'].iloc[0]) if '^SP500TR' in month_prices.columns else curr_sp500
+            month_start_rsp = float(month_prices['RSP'].iloc[0]) if 'RSP' in month_prices.columns else curr_rsp
+            month_start_urth = float(month_prices['URTH'].iloc[0]) if 'URTH' in month_prices.columns else curr_urth
+            month_start_acwi = float(month_prices['ACWI'].iloc[0]) if 'ACWI' in month_prices.columns else curr_acwi
         else:
-            month_start_sp500, month_start_rsp, month_start_urth = curr_sp500, curr_rsp, curr_urth
+            month_start_sp500, month_start_rsp, month_start_urth, month_start_acwi = curr_sp500, curr_rsp, curr_urth, curr_acwi
 
         returns['mtd'] = {
             'sp500_tr': ((curr_sp500 - month_start_sp500) / month_start_sp500 * 100) if month_start_sp500 > 0 else 0,
             'sp500_ew': ((curr_rsp - month_start_rsp) / month_start_rsp * 100) if month_start_rsp > 0 else 0,
             'msci_world': ((curr_urth - month_start_urth) / month_start_urth * 100) if month_start_urth > 0 else 0,
+            'msci_world_ew': ((curr_acwi - month_start_acwi) / month_start_acwi * 100) if month_start_acwi > 0 else 0,
         }
     else:
-        returns['dtd'] = {'sp500_tr': 0, 'sp500_ew': 0, 'msci_world': 0}
-        returns['mtd'] = {'sp500_tr': 0, 'sp500_ew': 0, 'msci_world': 0}
+        returns['dtd'] = {'sp500_tr': 0, 'sp500_ew': 0, 'msci_world': 0, 'msci_world_ew': 0}
+        returns['mtd'] = {'sp500_tr': 0, 'sp500_ew': 0, 'msci_world': 0, 'msci_world_ew': 0}
 
     # Portfolio DTD - from last historical entry
     last_hist = hist_df.iloc[-1] if len(hist_df) > 0 else None
@@ -564,15 +636,26 @@ def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: f
         'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - year_start_data['sp500_tr']) / year_start_data['sp500_tr']) * 100 if year_start_data['sp500_tr'] > 0 else 0,
         'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - year_start_data['sp500_ew']) / year_start_data['sp500_ew']) * 100 if year_start_data['sp500_ew'] > 0 else 0,
         'msci_world': ((hist_df.iloc[-1]['msci_world'] - year_start_data['msci_world']) / year_start_data['msci_world']) * 100 if year_start_data['msci_world'] > 0 else 0,
+        'msci_world_ew': ((hist_df.iloc[-1].get('msci_world_ew', 0) - year_start_data.get('msci_world_ew', 0)) / year_start_data.get('msci_world_ew', 1) * 100) if year_start_data.get('msci_world_ew', 0) > 0 else 0,
     }
 
     # All time (from inception)
     inception_data = hist_df.iloc[0]
+
+    # For MSCI World EW, use first available data point (Oct 2024)
+    msci_ew_data = hist_df[hist_df['msci_world_ew'].notna()] if 'msci_world_ew' in hist_df.columns else pd.DataFrame()
+    if len(msci_ew_data) > 0:
+        msci_ew_inception = msci_ew_data.iloc[0]
+        msci_ew_all_time = ((hist_df.iloc[-1]['msci_world_ew'] - msci_ew_inception['msci_world_ew']) / msci_ew_inception['msci_world_ew']) * 100
+    else:
+        msci_ew_all_time = 0
+
     returns['all_time'] = {
         'portfolio': ((current_value - inception_data['portfolio_value']) / inception_data['portfolio_value']) * 100,
         'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - inception_data['sp500_tr']) / inception_data['sp500_tr']) * 100,
         'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - inception_data['sp500_ew']) / inception_data['sp500_ew']) * 100,
         'msci_world': ((hist_df.iloc[-1]['msci_world'] - inception_data['msci_world']) / inception_data['msci_world']) * 100,
+        'msci_world_ew': msci_ew_all_time,
     }
 
     return returns
@@ -700,37 +783,42 @@ def render_daily_summary(data: dict):
         hist_df = pd.DataFrame(hist_data)
         period_returns = calculate_period_returns(data, hist_df, total_value)
 
-        # Create returns grid
+        # Create returns grid with all benchmarks including MSCI World EW
         returns_grid = pd.DataFrame({
-            "": ["Your Portfolio", "S&P 500 TR", "S&P 500 EW", "MSCI World"],
+            "": ["Your Portfolio", "S&P 500 TR", "S&P 500 EW", "MSCI World", "MSCI World EW"],
             "DTD": [
                 f"{period_returns['dtd']['portfolio']:+.2f}%",
                 f"{period_returns['dtd']['sp500_tr']:+.2f}%",
                 f"{period_returns['dtd']['sp500_ew']:+.2f}%",
-                f"{period_returns['dtd']['msci_world']:+.2f}%"
+                f"{period_returns['dtd']['msci_world']:+.2f}%",
+                f"{period_returns['dtd'].get('msci_world_ew', 0):+.2f}%"
             ],
             "MTD": [
                 f"{period_returns['mtd']['portfolio']:+.2f}%",
                 f"{period_returns['mtd']['sp500_tr']:+.2f}%",
                 f"{period_returns['mtd']['sp500_ew']:+.2f}%",
-                f"{period_returns['mtd']['msci_world']:+.2f}%"
+                f"{period_returns['mtd']['msci_world']:+.2f}%",
+                f"{period_returns['mtd'].get('msci_world_ew', 0):+.2f}%"
             ],
             "YTD": [
                 f"{period_returns['ytd']['portfolio']:+.2f}%",
                 f"{period_returns['ytd']['sp500_tr']:+.2f}%",
                 f"{period_returns['ytd']['sp500_ew']:+.2f}%",
-                f"{period_returns['ytd']['msci_world']:+.2f}%"
+                f"{period_returns['ytd']['msci_world']:+.2f}%",
+                f"{period_returns['ytd'].get('msci_world_ew', 0):+.2f}%"
             ],
-            "All-Time": [
+            "All-Time*": [
                 f"{period_returns['all_time']['portfolio']:+.2f}%",
                 f"{period_returns['all_time']['sp500_tr']:+.2f}%",
                 f"{period_returns['all_time']['sp500_ew']:+.2f}%",
-                f"{period_returns['all_time']['msci_world']:+.2f}%"
+                f"{period_returns['all_time']['msci_world']:+.2f}%",
+                f"{period_returns['all_time'].get('msci_world_ew', 0):+.2f}%"
             ]
         })
 
         # Style the returns grid with colors
-        st.dataframe(returns_grid, use_container_width=True, hide_index=True, height=180)
+        st.dataframe(returns_grid, use_container_width=True, hide_index=True, height=215)
+        st.caption("*MSCI World EW All-Time calculated from Oct 2024 (ETF launch)")
 
         # Show alpha (outperformance vs S&P 500)
         col1, col2, col3, col4 = st.columns(4)
