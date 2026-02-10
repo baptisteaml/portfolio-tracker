@@ -597,7 +597,7 @@ def fetch_benchmark_live(start_date: str) -> Dict[str, pd.Series]:
         'sp500_tr': '^SP500TR',
         'sp500_ew': 'RSP',
         'msci_world': 'URTH',
-        'msci_world_ew': 'WNDY'
+        'msci_world_ew': 'XDEW.L'
     }
     result = {}
     for key, ticker in ticker_map.items():
@@ -618,19 +618,28 @@ def _pct(end, start):
 
 def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: float,
                               current_prices: dict, prev_prices: dict, fx_rates: dict) -> dict:
-    """Calculate DTD/MTD/YTD/All-Time returns using live data for everything."""
+    """Calculate DTD/MTD/YTD/All-Time returns.
+
+    DTD: live stock prices (current vs previous day)
+    MTD/YTD/All-Time portfolio: uses last historical snapshot to match Excel
+    Benchmarks: live yfinance data
+    """
     today = datetime.now().date()
 
     hist_df = hist_df.copy()
     hist_df['date'] = pd.to_datetime(hist_df['date']).dt.date
     hist_df = hist_df.sort_values('date')
 
+    # Use last historical snapshot as portfolio "current" for MTD/YTD/All-Time
+    # This matches the Excel's tracked values
+    snapshot_value = hist_df.iloc[-1]['portfolio_value']
+
     # Fetch live benchmark data going back to start of year (plus buffer)
     year_start = today.replace(month=1, day=1)
     benchmarks = fetch_benchmark_live((year_start - timedelta(days=5)).strftime("%Y-%m-%d"))
 
     # === DTD ===
-    # Portfolio: use current vs previous day stock prices
+    # Portfolio: use current vs previous day stock prices (live)
     prev_value = data.get("cash", 0)
     for strategy in data.get("strategies", {}).values():
         for h in strategy.get("holdings", []):
@@ -652,10 +661,10 @@ def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: f
     month_start = today.replace(day=1)
     mtd = {'portfolio': 0}
 
-    # Portfolio MTD from historical monthly snapshot
+    # Portfolio MTD: snapshot vs month start historical entry
     month_hist = hist_df[hist_df['date'] <= month_start]
     if len(month_hist) > 0:
-        mtd['portfolio'] = _pct(current_value, month_hist.iloc[-1]['portfolio_value'])
+        mtd['portfolio'] = _pct(snapshot_value, month_hist.iloc[-1]['portfolio_value'])
 
     for key, series in benchmarks.items():
         dates = series.index.date if hasattr(series.index, 'date') else series.index
@@ -671,14 +680,14 @@ def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: f
     # === YTD ===
     ytd = {'portfolio': 0}
 
-    # Portfolio YTD from Jan 1 historical entry
+    # Portfolio YTD: snapshot vs Jan 1 historical entry
     ytd_hist = hist_df[hist_df['date'] >= year_start]
     if len(ytd_hist) > 0:
-        ytd['portfolio'] = _pct(current_value, ytd_hist.iloc[0]['portfolio_value'])
+        ytd['portfolio'] = _pct(snapshot_value, ytd_hist.iloc[0]['portfolio_value'])
     else:
         before_year = hist_df[hist_df['date'] < year_start]
         if len(before_year) > 0:
-            ytd['portfolio'] = _pct(current_value, before_year.iloc[-1]['portfolio_value'])
+            ytd['portfolio'] = _pct(snapshot_value, before_year.iloc[-1]['portfolio_value'])
 
     for key, series in benchmarks.items():
         dates = series.index.date if hasattr(series.index, 'date') else series.index
@@ -695,7 +704,7 @@ def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: f
     inception = hist_df.iloc[0]
     last = hist_df.iloc[-1]
     all_time = {
-        'portfolio': _pct(current_value, inception['portfolio_value']),
+        'portfolio': _pct(snapshot_value, inception['portfolio_value']),
         'sp500_tr': _pct(last['sp500_tr'], inception['sp500_tr']),
         'sp500_ew': _pct(last['sp500_ew'], inception['sp500_ew']),
         'msci_world': _pct(last['msci_world'], inception['msci_world']),
