@@ -369,6 +369,7 @@ def render_dashboard(data: dict):
         st.warning("No holdings found. Go to Trading to add positions.")
         return
 
+    today = datetime.now().date()
     fx_rates = fetch_fx_rates()
     current_prices, prev_prices = fetch_prices_with_prev(tickers)
     total_value, holdings_detail = calculate_portfolio_value(data, current_prices, fx_rates)
@@ -408,7 +409,7 @@ def render_dashboard(data: dict):
     hist_data = data.get("historical_values", [])
     if hist_data:
         hist_df_returns = pd.DataFrame(hist_data)
-        period_returns = calculate_period_returns(data, hist_df_returns, total_value)
+        period_returns = calculate_period_returns(data, hist_df_returns, total_value, current_prices, prev_prices, fx_rates)
 
         # Create returns grid with all benchmarks
         returns_grid = pd.DataFrame({
@@ -529,136 +530,183 @@ def render_dashboard(data: dict):
         )
         st.plotly_chart(fig, use_container_width=True)
 
+    st.markdown("---")
+
+    # Dividend Income & ETF Expenses
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Dividend Income")
+        div_data = data.get("dividends", {})
+        if div_data:
+            cumulative_div = div_data.get("cumulative_total", 0)
+            annual_divs = div_data.get("annual_totals", {})
+            st.metric("Cumulative Dividends", f"${cumulative_div:,.2f}")
+
+            div_rows = [{"Year": yr, "Dividends": f"${amt:,.2f}"} for yr, amt in sorted(annual_divs.items())]
+            if div_rows:
+                div_df = pd.DataFrame(div_rows)
+                st.dataframe(div_df, use_container_width=True, hide_index=True, height=38 + len(div_rows) * 35 + 10)
+
+            # Dividend yield on cost
+            starting = data.get("starting_capital", 129626)
+            ttm_div = sum(amt for yr, amt in annual_divs.items() if yr in [str(today.year), str(today.year - 1)])
+            if starting > 0:
+                st.metric("TTM Dividend Yield (on cost)", f"{(ttm_div / starting * 100):.2f}%")
+        else:
+            st.info("No dividend data available")
+
+    with col2:
+        st.subheader("ETF Expenses")
+        expense_data = data.get("etf_expenses", {})
+        if expense_data:
+            cumulative_fees = expense_data.get("cumulative_total", 0)
+            annual_fees = expense_data.get("annual_fees", {})
+            st.metric("Cumulative Fees Paid", f"${cumulative_fees:,.2f}")
+
+            fee_rows = [{"Year": yr, "Fees": f"${amt:,.2f}"} for yr, amt in sorted(annual_fees.items())]
+            if fee_rows:
+                fee_df = pd.DataFrame(fee_rows)
+                st.dataframe(fee_df, use_container_width=True, hide_index=True, height=38 + len(fee_rows) * 35 + 10)
+
+            # Net income (dividends - fees)
+            net = data.get("dividends", {}).get("cumulative_total", 0) - cumulative_fees
+            st.metric("Net Income (Divs - Fees)", f"${net:,.2f}")
+        else:
+            st.info("No ETF expense data available")
+
+    # Sharpe Ratio from Excel
+    sharpe = data.get("sharpe_data", {})
+    if sharpe:
+        st.markdown("---")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Sharpe Ratio", f"{sharpe.get('sharpe_ratio', 0):.2f}")
+        with col2:
+            st.metric("Risk-Free Rate", f"{sharpe.get('risk_free_rate', 0)*100:.2f}%")
+        with col3:
+            st.metric("Std Deviation", f"${sharpe.get('std_deviation', 0):,.2f}")
+        with col4:
+            st.metric("Years Since Inception", f"{sharpe.get('years_elapsed', 0):.1f}")
+
 
 @st.cache_data(ttl=300)
-def fetch_benchmark_prices(start_date: str) -> pd.DataFrame:
-    """Fetch benchmark price history."""
-    benchmark_tickers = ["^SP500TR", "RSP", "URTH", "ACWI"]  # Added ACWI for MSCI World EW
-    try:
-        data = yf.download(benchmark_tickers, start=start_date, progress=False)
-        if not data.empty:
-            return data['Close']
-    except:
-        pass
-    return pd.DataFrame()
+def fetch_benchmark_live(start_date: str) -> Dict[str, pd.Series]:
+    """Fetch benchmark price series individually for reliability."""
+    ticker_map = {
+        'sp500_tr': '^SP500TR',
+        'sp500_ew': 'RSP',
+        'msci_world': 'URTH',
+        'msci_world_ew': 'WNDY'
+    }
+    result = {}
+    for key, ticker in ticker_map.items():
+        try:
+            t = yf.Ticker(ticker)
+            hist = t.history(start=start_date)
+            if not hist.empty:
+                result[key] = hist['Close']
+        except:
+            pass
+    return result
 
 
-def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: float) -> dict:
-    """Calculate returns for different time periods."""
+def _pct(end, start):
+    """Safe percent change."""
+    return ((end - start) / start * 100) if start > 0 else 0
+
+
+def calculate_period_returns(data: dict, hist_df: pd.DataFrame, current_value: float,
+                              current_prices: dict, prev_prices: dict, fx_rates: dict) -> dict:
+    """Calculate DTD/MTD/YTD/All-Time returns using live data for everything."""
     today = datetime.now().date()
 
-    # Get historical data points
     hist_df = hist_df.copy()
     hist_df['date'] = pd.to_datetime(hist_df['date']).dt.date
     hist_df = hist_df.sort_values('date')
 
-    returns = {}
-
-    # Fetch live benchmark prices for accurate DTD/MTD - go back further for MTD
-    benchmark_prices = fetch_benchmark_prices((today - timedelta(days=45)).strftime("%Y-%m-%d"))
-
-    # Get current and previous benchmark values from live data
-    if not benchmark_prices.empty and len(benchmark_prices) >= 2:
-        # Current values (last row)
-        curr_sp500 = float(benchmark_prices['^SP500TR'].iloc[-1]) if '^SP500TR' in benchmark_prices.columns else 0
-        curr_rsp = float(benchmark_prices['RSP'].iloc[-1]) if 'RSP' in benchmark_prices.columns else 0
-        curr_urth = float(benchmark_prices['URTH'].iloc[-1]) if 'URTH' in benchmark_prices.columns else 0
-        curr_acwi = float(benchmark_prices['ACWI'].iloc[-1]) if 'ACWI' in benchmark_prices.columns else 0
-
-        # Previous day values (second to last row)
-        prev_sp500 = float(benchmark_prices['^SP500TR'].iloc[-2]) if '^SP500TR' in benchmark_prices.columns else 0
-        prev_rsp = float(benchmark_prices['RSP'].iloc[-2]) if 'RSP' in benchmark_prices.columns else 0
-        prev_urth = float(benchmark_prices['URTH'].iloc[-2]) if 'URTH' in benchmark_prices.columns else 0
-        prev_acwi = float(benchmark_prices['ACWI'].iloc[-2]) if 'ACWI' in benchmark_prices.columns else 0
-
-        # DTD from live data
-        returns['dtd'] = {
-            'sp500_tr': ((curr_sp500 - prev_sp500) / prev_sp500 * 100) if prev_sp500 > 0 else 0,
-            'sp500_ew': ((curr_rsp - prev_rsp) / prev_rsp * 100) if prev_rsp > 0 else 0,
-            'msci_world': ((curr_urth - prev_urth) / prev_urth * 100) if prev_urth > 0 else 0,
-            'msci_world_ew': ((curr_acwi - prev_acwi) / prev_acwi * 100) if prev_acwi > 0 else 0,
-        }
-
-        # MTD from live data - find first trading day of month
-        month_start = today.replace(day=1)
-        # Convert index to date for comparison
-        benchmark_prices_copy = benchmark_prices.copy()
-        benchmark_prices_copy['_date'] = benchmark_prices_copy.index.date
-        month_prices = benchmark_prices_copy[benchmark_prices_copy['_date'] >= month_start]
-
-        if len(month_prices) > 0:
-            month_start_sp500 = float(month_prices['^SP500TR'].iloc[0]) if '^SP500TR' in month_prices.columns else curr_sp500
-            month_start_rsp = float(month_prices['RSP'].iloc[0]) if 'RSP' in month_prices.columns else curr_rsp
-            month_start_urth = float(month_prices['URTH'].iloc[0]) if 'URTH' in month_prices.columns else curr_urth
-            month_start_acwi = float(month_prices['ACWI'].iloc[0]) if 'ACWI' in month_prices.columns else curr_acwi
-        else:
-            month_start_sp500, month_start_rsp, month_start_urth, month_start_acwi = curr_sp500, curr_rsp, curr_urth, curr_acwi
-
-        returns['mtd'] = {
-            'sp500_tr': ((curr_sp500 - month_start_sp500) / month_start_sp500 * 100) if month_start_sp500 > 0 else 0,
-            'sp500_ew': ((curr_rsp - month_start_rsp) / month_start_rsp * 100) if month_start_rsp > 0 else 0,
-            'msci_world': ((curr_urth - month_start_urth) / month_start_urth * 100) if month_start_urth > 0 else 0,
-            'msci_world_ew': ((curr_acwi - month_start_acwi) / month_start_acwi * 100) if month_start_acwi > 0 else 0,
-        }
-    else:
-        returns['dtd'] = {'sp500_tr': 0, 'sp500_ew': 0, 'msci_world': 0, 'msci_world_ew': 0}
-        returns['mtd'] = {'sp500_tr': 0, 'sp500_ew': 0, 'msci_world': 0, 'msci_world_ew': 0}
-
-    # Portfolio DTD - from last historical entry
-    last_hist = hist_df.iloc[-1] if len(hist_df) > 0 else None
-    if last_hist is not None:
-        returns['dtd']['portfolio'] = ((current_value - last_hist['portfolio_value']) / last_hist['portfolio_value']) * 100
-    else:
-        returns['dtd']['portfolio'] = 0
-
-    # Portfolio MTD - find closest entry to start of month
-    month_start = today.replace(day=1)
-    month_data = hist_df[hist_df['date'] <= month_start]
-    if len(month_data) > 0:
-        month_start_data = month_data.iloc[-1]
-        returns['mtd']['portfolio'] = ((current_value - month_start_data['portfolio_value']) / month_start_data['portfolio_value']) * 100
-    else:
-        returns['mtd']['portfolio'] = returns['dtd']['portfolio']
-
-    # YTD - use Jan 1 entry or closest after
+    # Fetch live benchmark data going back to start of year (plus buffer)
     year_start = today.replace(month=1, day=1)
-    # Find entry on or after Jan 1
-    ytd_data = hist_df[hist_df['date'] >= year_start]
-    if len(ytd_data) > 0:
-        year_start_data = ytd_data.iloc[0]  # First entry of the year
+    benchmarks = fetch_benchmark_live((year_start - timedelta(days=5)).strftime("%Y-%m-%d"))
+
+    # === DTD ===
+    # Portfolio: use current vs previous day stock prices
+    prev_value = data.get("cash", 0)
+    for strategy in data.get("strategies", {}).values():
+        for h in strategy.get("holdings", []):
+            t = h["ticker"]
+            if t in prev_prices:
+                fx = fx_rates.get(h.get("currency", "USD"), 1.0)
+                prev_value += h["shares"] * prev_prices[t] * fx
+
+    dtd = {'portfolio': _pct(current_value, prev_value)}
+    for key, series in benchmarks.items():
+        if len(series) >= 2:
+            dtd[key] = _pct(float(series.iloc[-1]), float(series.iloc[-2]))
+        else:
+            dtd[key] = 0
+    for key in ['sp500_tr', 'sp500_ew', 'msci_world', 'msci_world_ew']:
+        dtd.setdefault(key, 0)
+
+    # === MTD ===
+    month_start = today.replace(day=1)
+    mtd = {'portfolio': 0}
+
+    # Portfolio MTD from historical monthly snapshot
+    month_hist = hist_df[hist_df['date'] <= month_start]
+    if len(month_hist) > 0:
+        mtd['portfolio'] = _pct(current_value, month_hist.iloc[-1]['portfolio_value'])
+
+    for key, series in benchmarks.items():
+        dates = series.index.date if hasattr(series.index, 'date') else series.index
+        month_mask = [d >= month_start for d in dates]
+        month_data = series[month_mask]
+        if len(month_data) >= 1:
+            mtd[key] = _pct(float(series.iloc[-1]), float(month_data.iloc[0]))
+        else:
+            mtd[key] = 0
+    for key in ['sp500_tr', 'sp500_ew', 'msci_world', 'msci_world_ew']:
+        mtd.setdefault(key, 0)
+
+    # === YTD ===
+    ytd = {'portfolio': 0}
+
+    # Portfolio YTD from Jan 1 historical entry
+    ytd_hist = hist_df[hist_df['date'] >= year_start]
+    if len(ytd_hist) > 0:
+        ytd['portfolio'] = _pct(current_value, ytd_hist.iloc[0]['portfolio_value'])
     else:
-        # Fallback to last entry of previous year
-        year_data = hist_df[hist_df['date'] < year_start]
-        year_start_data = year_data.iloc[-1] if len(year_data) > 0 else hist_df.iloc[0]
+        before_year = hist_df[hist_df['date'] < year_start]
+        if len(before_year) > 0:
+            ytd['portfolio'] = _pct(current_value, before_year.iloc[-1]['portfolio_value'])
 
-    returns['ytd'] = {
-        'portfolio': ((current_value - year_start_data['portfolio_value']) / year_start_data['portfolio_value']) * 100,
-        'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - year_start_data['sp500_tr']) / year_start_data['sp500_tr']) * 100 if year_start_data['sp500_tr'] > 0 else 0,
-        'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - year_start_data['sp500_ew']) / year_start_data['sp500_ew']) * 100 if year_start_data['sp500_ew'] > 0 else 0,
-        'msci_world': ((hist_df.iloc[-1]['msci_world'] - year_start_data['msci_world']) / year_start_data['msci_world']) * 100 if year_start_data['msci_world'] > 0 else 0,
-        'msci_world_ew': ((hist_df.iloc[-1].get('msci_world_ew', 0) - year_start_data.get('msci_world_ew', 0)) / year_start_data.get('msci_world_ew', 1) * 100) if year_start_data.get('msci_world_ew', 0) > 0 else 0,
+    for key, series in benchmarks.items():
+        dates = series.index.date if hasattr(series.index, 'date') else series.index
+        yr_mask = [d >= year_start for d in dates]
+        yr_data = series[yr_mask]
+        if len(yr_data) >= 1:
+            ytd[key] = _pct(float(series.iloc[-1]), float(yr_data.iloc[0]))
+        else:
+            ytd[key] = 0
+    for key in ['sp500_tr', 'sp500_ew', 'msci_world', 'msci_world_ew']:
+        ytd.setdefault(key, 0)
+
+    # === ALL TIME ===
+    inception = hist_df.iloc[0]
+    last = hist_df.iloc[-1]
+    all_time = {
+        'portfolio': _pct(current_value, inception['portfolio_value']),
+        'sp500_tr': _pct(last['sp500_tr'], inception['sp500_tr']),
+        'sp500_ew': _pct(last['sp500_ew'], inception['sp500_ew']),
+        'msci_world': _pct(last['msci_world'], inception['msci_world']),
+        'msci_world_ew': 0,
     }
+    if 'msci_world_ew' in hist_df.columns:
+        ew = hist_df[hist_df['msci_world_ew'].notna()]
+        if len(ew) > 1:
+            all_time['msci_world_ew'] = _pct(ew.iloc[-1]['msci_world_ew'], ew.iloc[0]['msci_world_ew'])
 
-    # All time (from inception)
-    inception_data = hist_df.iloc[0]
-
-    # For MSCI World EW, use first available data point (Oct 2024)
-    msci_ew_data = hist_df[hist_df['msci_world_ew'].notna()] if 'msci_world_ew' in hist_df.columns else pd.DataFrame()
-    if len(msci_ew_data) > 0:
-        msci_ew_inception = msci_ew_data.iloc[0]
-        msci_ew_all_time = ((hist_df.iloc[-1]['msci_world_ew'] - msci_ew_inception['msci_world_ew']) / msci_ew_inception['msci_world_ew']) * 100
-    else:
-        msci_ew_all_time = 0
-
-    returns['all_time'] = {
-        'portfolio': ((current_value - inception_data['portfolio_value']) / inception_data['portfolio_value']) * 100,
-        'sp500_tr': ((hist_df.iloc[-1]['sp500_tr'] - inception_data['sp500_tr']) / inception_data['sp500_tr']) * 100,
-        'sp500_ew': ((hist_df.iloc[-1]['sp500_ew'] - inception_data['sp500_ew']) / inception_data['sp500_ew']) * 100,
-        'msci_world': ((hist_df.iloc[-1]['msci_world'] - inception_data['msci_world']) / inception_data['msci_world']) * 100,
-        'msci_world_ew': msci_ew_all_time,
-    }
-
-    return returns
+    return {'dtd': dtd, 'mtd': mtd, 'ytd': ytd, 'all_time': all_time}
 
 
 def calculate_period_attribution(data: dict, hist_df: pd.DataFrame, start_date, end_date, fx_rates: dict) -> dict:
@@ -781,7 +829,7 @@ def render_daily_summary(data: dict):
     hist_data = data.get("historical_values", [])
     if hist_data:
         hist_df = pd.DataFrame(hist_data)
-        period_returns = calculate_period_returns(data, hist_df, total_value)
+        period_returns = calculate_period_returns(data, hist_df, total_value, current_prices, prev_prices, fx_rates)
 
         # Create returns grid with all benchmarks including MSCI World EW
         returns_grid = pd.DataFrame({
